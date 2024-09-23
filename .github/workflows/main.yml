@@ -39,10 +39,7 @@ jobs:
 
       - name: Check and get dependencies
         run: |
-          go mod download
-          go mod tidy
-          git diff --exit-code go.mod
-          git diff --exit-code go.sum
+          golangci-lint run --verbose
 
       - name: Build
         run: make
