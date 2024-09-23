@@ -28,7 +28,7 @@ changelog:
       - '^tests:'
 
 archives:
-  - id: plugindemowasm
+  - id: traefik-plugin-denyip
     name_template: '{{ .ProjectName }}_v{{ .Version }}'
     format: zip
     files:
