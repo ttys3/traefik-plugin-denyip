@@ -49,18 +49,18 @@ type DenyIP struct {
 func main() {
 	var config Config
 	err := json.Unmarshal(handler.Host.GetConfig(), &config)
-	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP config: %s", string(handler.Host.GetConfig())))
 	if err != nil {
-		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not decode config %v", err))
+		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not decode config %v,config=%s", err, string(handler.Host.GetConfig())))
 		os.Exit(1)
 	}
-	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP config decoded: %v", config))
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP config decoded success: %v", config))
 
 	mw, err := New(config)
 	if err != nil {
 		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not load config %v", err))
 		os.Exit(1)
 	}
+	handler.Host.Log(api.LogLevelInfo, fmt.Sprintf("DenyIP plugin loaded with config: %v", config))
 	handler.HandleRequestFn = mw.handleRequest
 }
 
