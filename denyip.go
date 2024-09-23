@@ -21,7 +21,7 @@ var builtinBlacklist = map[string][]string{
 
 const (
 	xForwardedFor  = "X-Forwarded-For"
-	CfConnectingIP = "Cf-Connecting-Ip"
+	CfConnectingIP = "CF-Connecting-IP"
 )
 
 // Checker allows to check that addresses are in a denied IPs.
@@ -78,6 +78,12 @@ func New(config Config) (*DenyIP, error) {
 
 func (a *DenyIP) handleRequest(req api.Request, rw api.Response) (next bool, reqCtx uint32) {
 	reqIPAddr := a.GetRemoteIP(req)
+	if len(reqIPAddr) == 0 {
+		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP: unable to get remote IP: %v", req.GetSourceAddr()))
+		next = false
+		return
+	}
+
 	reqIPAddrLenOffset := len(reqIPAddr) - 1
 
 	for i := reqIPAddrLenOffset; i >= 0; i-- {
