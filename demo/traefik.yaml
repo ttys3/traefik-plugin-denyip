@@ -1,0 +1,20 @@
+# Static configuration
+log:
+  level: TRACE
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+entryPoints:
+  web:
+   address: ":6688"
+
+providers:
+  file:
+    filename: "dyn.yaml"
+
+experimental:
+  localPlugins:
+    denyip:
+      moduleName: github.com/ttys3/traefik-plugin-denyip

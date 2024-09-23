@@ -1,0 +1,24 @@
+# Dynamic configuration
+
+http:
+  routers:
+    my-router:
+      rule: host(`localhost`)
+      service: service-foo
+      entryPoints:
+        - web
+      middlewares:
+        - denyip
+
+  services:
+   service-foo:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:5000
+  
+  middlewares:
+    denyip:
+      plugin:
+        denyip:
+          builtinLists:
+            - blocklist_net_ua.ipset
