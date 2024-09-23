@@ -1,5 +1,3 @@
-module github.com/kevtainer/denyip
+module github.com/ttys3/denyip
 
-go 1.16
-
-require github.com/stretchr/testify v1.6.1
+go 1.22

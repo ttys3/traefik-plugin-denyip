@@ -14,7 +14,7 @@ experimental:
     token: "xxxxx"
   plugins:
     denyip:
-      modulename = "github.com/kevtainer/denyip"
+      modulename = "github.com/ttys3/denyip"
       version = "v1.0.0"
 
 entryPoints:
