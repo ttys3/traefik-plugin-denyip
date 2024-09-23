@@ -7,5 +7,5 @@ import: github.com/ttys3/traefik-plugin-denyip
 summary: 'DenyIP is a middleware plugin which accepts IP addresses or IP address ranges and blocks requests originating from those IPs.'
 
 testData:
-  ipDenyList:
-    - 127.0.0.1
+  builtinLists:
+    - blocklist_net_ua.ipset
