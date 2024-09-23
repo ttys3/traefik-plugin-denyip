@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/http-wasm/http-wasm-guest-tinygo/handler"
@@ -32,7 +33,7 @@ type Checker struct {
 
 // Config the plugin configuration.
 type Config struct {
-	Enabled      bool     `json:"enabled,omitempty"`
+	Enabled      string   `json:"enabled,omitempty"`
 	BuiltinLists []string `json:"builtinLists,omitempty"`
 	IPDenyList   []string `json:"ipDenyList,omitempty"`
 }
@@ -82,9 +83,11 @@ func New(config Config) (*DenyIP, error) {
 		return nil, err
 	}
 
+	enabled, _ := strconv.ParseBool(config.Enabled)
+
 	return &DenyIP{
 		checker: checker,
-		enabled: config.Enabled,
+		enabled: enabled,
 	}, nil
 }
 
