@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/kevtainer/denyip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	denyip "github.com/ttys3/traefik-plugin-denyip"
 )
 
 func TestNewDenyIP(t *testing.T) {

@@ -14,7 +14,7 @@ In the example below `fowardedHeaders.insecure` is enabled in order to allow the
 experimental:
   plugins:
     denyip:
-      modulename = "github.com/ttys3/denyip"
+      modulename = "github.com/ttys3/traefik-plugin-denyip"
       version = "v1.0.0"
 
 entryPoints:
@@ -34,7 +34,7 @@ see https://github.com/traefik/plugindemo#local-mode
 experimental:
   localPlugins:
     denyip:
-      moduleName: github.com/ttys3/denyip
+      moduleName: github.com/ttys3/traefik-plugin-denyip
 ```
 
 ### Dynamic
