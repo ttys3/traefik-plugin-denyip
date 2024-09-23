@@ -32,6 +32,7 @@ type Checker struct {
 
 // Config the plugin configuration.
 type Config struct {
+	Enabled      bool     `json:"enabled,omitempty"`
 	BuiltinLists []string `json:"builtinLists,omitempty"`
 	IPDenyList   []string `json:"ipDenyList,omitempty"`
 }
@@ -44,6 +45,7 @@ func CreateConfig() *Config {
 // DenyIP plugin.
 type DenyIP struct {
 	checker *Checker
+	enabled bool
 }
 
 var instance *DenyIP
@@ -82,10 +84,16 @@ func New(config Config) (*DenyIP, error) {
 
 	return &DenyIP{
 		checker: checker,
+		enabled: config.Enabled,
 	}, nil
 }
 
 func (a *DenyIP) handleRequest(req api.Request, rw api.Response) (next bool, reqCtx uint32) {
+	if !a.enabled {
+		next = true
+		return
+	}
+
 	reqIPAddr := a.GetRemoteIP(req)
 	if len(reqIPAddr) == 0 {
 		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP: unable to get remote IP: %v", req.GetSourceAddr()))
