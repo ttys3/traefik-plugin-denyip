@@ -15,9 +15,6 @@ import (
 	"github.com/http-wasm/http-wasm-guest-tinygo/handler/api"
 )
 
-//go:embed blocklist_net_ua.ipset
-var builtinBlacklistStr string
-
 var builtinBlacklist = map[string][]string{
 	"blocklist_net_ua.ipset": blocklist_net_uaList,
 }
@@ -47,7 +44,6 @@ func CreateConfig() *Config {
 // DenyIP plugin.
 type DenyIP struct {
 	checker *Checker
-	name    string
 }
 
 func main() {
