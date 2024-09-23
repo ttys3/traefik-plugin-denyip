@@ -93,7 +93,8 @@ func (a *DenyIP) handleRequest(req api.Request, rw api.Response) (next bool, req
 		}
 
 		if isBlocked {
-			handler.Host.Log(api.LogLevelInfo, fmt.Sprintf("DenyIP: request denied [%s]", reqIPAddr[i]))
+			handler.Host.Log(api.LogLevelInfo, fmt.Sprintf("DenyIP: request denied [%s] %s %s [%s] source=%s",
+				reqIPAddr[i], req.GetProtocolVersion(), req.GetMethod(), req.GetURI(), req.GetSourceAddr()))
 
 			rw.SetStatusCode(http.StatusForbidden)
 			next = false
