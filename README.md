@@ -57,6 +57,8 @@ http:
   middlewares:
     denyip:
       plugin:
+        builtinLists:
+          - blocklist_net_ua.ipset
         ipDenyList:
           - 24.0.0.0/12
           - 24.16.0.0/13
