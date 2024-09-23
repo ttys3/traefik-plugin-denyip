@@ -1,22 +1,25 @@
-// Package denyip - middleware for denying request based on IP.
-package denyip
+// Package main - middleware for denying request based on IP.
+package main
 
 import (
-	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+
+	"github.com/http-wasm/http-wasm-guest-tinygo/handler"
+	"github.com/http-wasm/http-wasm-guest-tinygo/handler/api"
 )
 
 //go:embed blocklist_net_ua.ipset
 var builtinBlacklistStr string
 
 var builtinBlacklist = map[string][]string{
-	"blocklist_net_ua.ipset": strings.Split(builtinBlacklistStr, "\n"),
+	"blocklist_net_ua.ipset": blocklist_net_uaList,
 }
 
 const (
@@ -42,59 +45,80 @@ func CreateConfig() *Config {
 }
 
 // DenyIP plugin.
-type denyIP struct {
-	next    http.Handler
+type DenyIP struct {
 	checker *Checker
 	name    string
 }
 
+func main() {
+	var config Config
+	err := json.Unmarshal(handler.Host.GetConfig(), &config)
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP config: %s", string(handler.Host.GetConfig())))
+	if err != nil {
+		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not decode config %v", err))
+		os.Exit(1)
+	}
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP config decoded: %v", config))
+
+	mw, err := New(config)
+	if err != nil {
+		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not load config %v", err))
+		os.Exit(1)
+	}
+	handler.HandleRequestFn = mw.handleRequest
+}
+
 // New creates a new DenyIP plugin.
-func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
+func New(config Config) (*DenyIP, error) {
 	checker, err := NewChecker(config.IPDenyList, config.BuiltinLists)
 	if err != nil {
 		return nil, err
 	}
 
-	return &denyIP{
+	return &DenyIP{
 		checker: checker,
-		next:    next,
-		name:    name,
 	}, nil
 }
 
-func (a *denyIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+func (a *DenyIP) handleRequest(req api.Request, rw api.Response) (next bool, reqCtx uint32) {
 	reqIPAddr := a.GetRemoteIP(req)
 	reqIPAddrLenOffset := len(reqIPAddr) - 1
 
 	for i := reqIPAddrLenOffset; i >= 0; i-- {
 		isBlocked, err := a.checker.Contains(reqIPAddr[i])
 		if err != nil {
-			log.Printf("%v", err)
+			handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP: error checking IP: %v", err))
 		}
 
 		if isBlocked {
-			log.Printf("denyIP: request denied [%s]", reqIPAddr[i])
-			rw.WriteHeader(http.StatusForbidden)
+			handler.Host.Log(api.LogLevelInfo, fmt.Sprintf("DenyIP: request denied [%s]", reqIPAddr[i]))
 
+			rw.SetStatusCode(http.StatusForbidden)
+			next = false
 			return
 		}
 	}
 
-	a.next.ServeHTTP(rw, req)
+	next = true
+	return
 }
 
 // GetRemoteIP returns a list of IPs that are associated with this request.
-func (a *denyIP) GetRemoteIP(req *http.Request) []string {
+func (a *DenyIP) GetRemoteIP(req api.Request) []string {
 	var ipList []string
 
-	if cfConnectingIP := req.Header.Get(CfConnectingIP); cfConnectingIP != "" {
+	if cfConnectingIP, _ := req.Headers().Get(CfConnectingIP); cfConnectingIP != "" {
 		ipList = append(ipList, cfConnectingIP)
 		return ipList
 	}
 
-	log.Printf("no %v header found, fallback to x-forwarded-for: %s", CfConnectingIP, req.Header.Get(xForwardedFor))
+	xff, ok := req.Headers().Get(xForwardedFor)
+	if !ok || xff == "" {
+		return ipList
+	}
 
-	xff := req.Header.Get(xForwardedFor)
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP no %v header found, fallback to x-forwarded-for: %s", CfConnectingIP, xff))
+
 	xffs := strings.Split(xff, ",")
 
 	for i := len(xffs) - 1; i >= 0; i-- {
@@ -105,9 +129,9 @@ func (a *denyIP) GetRemoteIP(req *http.Request) []string {
 		}
 	}
 
-	ip, _, err := net.SplitHostPort(req.RemoteAddr)
+	ip, _, err := net.SplitHostPort(req.GetSourceAddr())
 	if err != nil {
-		remoteAddrTrim := strings.TrimSpace(req.RemoteAddr)
+		remoteAddrTrim := strings.TrimSpace(req.GetSourceAddr())
 		if len(remoteAddrTrim) > 0 {
 			ipList = append(ipList, remoteAddrTrim)
 		}
@@ -123,17 +147,18 @@ func (a *denyIP) GetRemoteIP(req *http.Request) []string {
 
 // NewChecker builds a new Checker given a list of CIDR-Strings to denied IPs.
 func NewChecker(deniedIPs []string, builtinLists []string) (*Checker, error) {
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP NewChecker begin, deniedIPs: %v, builtinLists: %v", deniedIPs, builtinLists))
 	if len(builtinLists) > 0 {
 		for _, list := range builtinLists {
 			if builtinBlacklist[list] != nil {
 				deniedIPs = append(deniedIPs, builtinBlacklist[list]...)
-				log.Printf("denyIP: using builtin list %s", list)
+				handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP: using builtin list %s", list))
 			}
 		}
 	}
 
 	if len(deniedIPs) == 0 {
-		return nil, errors.New("no denied IPs provided")
+		return nil, errors.New("DenyIP: no denied IPs provided")
 	}
 
 	checker := &Checker{}
@@ -144,25 +169,26 @@ func NewChecker(deniedIPs []string, builtinLists []string) (*Checker, error) {
 		} else {
 			_, ipAddr, err := net.ParseCIDR(ipMask)
 			if err != nil {
-				return nil, fmt.Errorf("parsing CIDR denied IPs %s: %w", ipAddr, err)
+				return nil, fmt.Errorf("DenyIP: parsing CIDR denied IPs %s: %w", ipAddr, err)
 			}
 			checker.denyIPsNet = append(checker.denyIPsNet, ipAddr)
 		}
 	}
 
-	log.Printf("init done, total denied IPs: %d, ips: %v, ips_net: %v", len(checker.denyIPs)+len(checker.denyIPsNet))
+	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP init done, total denied IPs: %d, ips: %v, ips_net: %v",
+		len(checker.denyIPs)+len(checker.denyIPsNet), len(checker.denyIPs), len(checker.denyIPsNet)))
 	return checker, nil
 }
 
 // Contains checks if provided address is in the denied IPs.
 func (ip *Checker) Contains(addr string) (bool, error) {
 	if len(addr) == 0 {
-		return false, errors.New("empty IP address")
+		return false, errors.New("DenyIP: got empty client IP address")
 	}
 
 	ipAddr, err := parseIP(addr)
 	if err != nil {
-		return false, fmt.Errorf("denyipo Checker unable to parse address: %s: %w", addr, err)
+		return false, fmt.Errorf("DenyIP Checker unable to parse address: %s: %w", addr, err)
 	}
 
 	return ip.ContainsIP(ipAddr), nil
@@ -188,7 +214,7 @@ func (ip *Checker) ContainsIP(addr net.IP) bool {
 func parseIP(addr string) (net.IP, error) {
 	userIP := net.ParseIP(addr)
 	if userIP == nil {
-		return nil, fmt.Errorf("unable parse IP from address %s", addr)
+		return nil, fmt.Errorf("DenyIP: unable parse IP from address %s", addr)
 	}
 
 	return userIP, nil

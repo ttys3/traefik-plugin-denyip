@@ -1,7 +1,8 @@
-displayName: DenyIP Plugin
+displayName: DenyIP Plugin WASM
 type: middleware
+runtime: wasm
 
-import: github.com/kevtainer/denyip
+import: github.com/ttys3/traefik-plugin-denyip
 
 summary: 'DenyIP is a middleware plugin which accepts IP addresses or IP address ranges and blocks requests originating from those IPs.'
 

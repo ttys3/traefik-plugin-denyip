@@ -2,8 +2,6 @@
 
 DenyIP is a middleware plugin for [Traefik](https://github.com/traefik/traefik) which accepts IP addresses or IP address ranges and blocks requests originating from those IPs.
 
-refs https://plugins.traefik.io/install
-
 ## Configuration
 
 ### Static
@@ -138,6 +136,26 @@ http:
         - url: http://localhost:5000/
         passHostHeader: false
 ```
+
+## refs
+
+https://http-wasm.io/http-handler/
+
+https://plugins.traefik.io/install
+
+https://github.com/http-wasm/http-wasm-guest-tinygo/blob/main/handler/handler.go
+
+https://github.com/traefik/plugindemo
+
+https://github.com/traefik/plugindemowasm
+
+https://wazero.io/languages/tinygo/
+
+https://github.com/tinygo-org/tinygo
+
+https://tinygo.org/docs/reference/lang-support/stdlib/
+
+https://traefik.io/blog/traefik-3-deep-dive-into-wasm-support-with-coraza-waf-plugin/
 
 ## Credits
 

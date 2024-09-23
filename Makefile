@@ -2,7 +2,7 @@
 
 export GO111MODULE=on
 
-default: lint test
+default: lint test build
 
 lint:
 	golangci-lint run
@@ -10,8 +10,8 @@ lint:
 test:
 	go test -v -cover ./...
 
-vendor:
-	go mod vendor
+build:
+	@tinygo build -o plugin.wasm -scheduler=none --no-debug -target=wasi .
 
 clean:
 	rm -rf ./vendor
