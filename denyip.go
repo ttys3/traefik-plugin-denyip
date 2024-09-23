@@ -3,6 +3,7 @@ package denyip
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"log"
@@ -11,8 +12,16 @@ import (
 	"strings"
 )
 
+//go:embed blocklist_net_ua.ipset
+var builtinBlacklistStr string
+
+var builtinBlacklist = map[string][]string{
+	"blocklist_net_ua.ipset": strings.Split(builtinBlacklistStr, "\n"),
+}
+
 const (
-	xForwardedFor = "X-Forwarded-For"
+	xForwardedFor  = "X-Forwarded-For"
+	CfConnectingIP = "Cf-Connecting-Ip"
 )
 
 // Checker allows to check that addresses are in a denied IPs.
@@ -23,7 +32,8 @@ type Checker struct {
 
 // Config the plugin configuration.
 type Config struct {
-	IPDenyList []string `json:"ipDenyList,omitempty"`
+	BuiltinLists []string `json:"builtinLists,omitempty"`
+	IPDenyList   []string `json:"ipDenyList,omitempty"`
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -40,7 +50,7 @@ type denyIP struct {
 
 // New creates a new DenyIP plugin.
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
-	checker, err := NewChecker(config.IPDenyList)
+	checker, err := NewChecker(config.IPDenyList, config.BuiltinLists)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +87,13 @@ func (a *denyIP) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 func (a *denyIP) GetRemoteIP(req *http.Request) []string {
 	var ipList []string
 
+	if cfConnectingIP := req.Header.Get(CfConnectingIP); cfConnectingIP != "" {
+		ipList = append(ipList, cfConnectingIP)
+		return ipList
+	}
+
+	log.Printf("no %v header found, fallback to x-forwarded-for: %s", CfConnectingIP, req.Header.Get(xForwardedFor))
+
 	xff := req.Header.Get(xForwardedFor)
 	xffs := strings.Split(xff, ",")
 
@@ -105,7 +122,16 @@ func (a *denyIP) GetRemoteIP(req *http.Request) []string {
 }
 
 // NewChecker builds a new Checker given a list of CIDR-Strings to denied IPs.
-func NewChecker(deniedIPs []string) (*Checker, error) {
+func NewChecker(deniedIPs []string, builtinLists []string) (*Checker, error) {
+	if len(builtinLists) > 0 {
+		for _, list := range builtinLists {
+			if builtinBlacklist[list] != nil {
+				deniedIPs = append(deniedIPs, builtinBlacklist[list]...)
+				log.Printf("denyIP: using builtin list %s", list)
+			}
+		}
+	}
+
 	if len(deniedIPs) == 0 {
 		return nil, errors.New("no denied IPs provided")
 	}
@@ -124,6 +150,7 @@ func NewChecker(deniedIPs []string) (*Checker, error) {
 		}
 	}
 
+	log.Printf("init done, total denied IPs: %d, ips: %v, ips_net: %v", len(checker.denyIPs)+len(checker.denyIPsNet))
 	return checker, nil
 }
 
@@ -135,7 +162,7 @@ func (ip *Checker) Contains(addr string) (bool, error) {
 
 	ipAddr, err := parseIP(addr)
 	if err != nil {
-		return false, fmt.Errorf("unable to parse address: %s: %w", addr, err)
+		return false, fmt.Errorf("denyipo Checker unable to parse address: %s: %w", addr, err)
 	}
 
 	return ip.ContainsIP(ipAddr), nil
