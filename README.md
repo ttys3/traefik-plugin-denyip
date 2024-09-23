@@ -13,7 +13,7 @@ experimental:
   plugins:
     denyip:
       modulename = "github.com/ttys3/traefik-plugin-denyip"
-      version = "v2.0.3"
+      version = "v2.0.5"
 
 entryPoints:
   http:
