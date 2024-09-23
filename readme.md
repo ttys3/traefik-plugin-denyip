@@ -2,6 +2,8 @@
 
 DenyIP is a middleware plugin for [Traefik](https://github.com/traefik/traefik) which accepts IP addresses or IP address ranges and blocks requests originating from those IPs.
 
+refs https://plugins.traefik.io/install
+
 ## Configuration
 
 ### Static
@@ -10,8 +12,6 @@ In the example below `fowardedHeaders.insecure` is enabled in order to allow the
 
 ```yaml
 experimental:
-  pilot:
-    token: "xxxxx"
   plugins:
     denyip:
       modulename = "github.com/ttys3/denyip"
@@ -22,6 +22,19 @@ entryPoints:
     address: ":80"
     forwardedHeaders:
       insecure: true
+```
+
+### Local Mode
+
+see https://github.com/traefik/plugindemo#local-mode
+
+```yaml
+# Static configuration
+
+experimental:
+  localPlugins:
+    denyip:
+      moduleName: github.com/ttys3/denyip
 ```
 
 ### Dynamic
@@ -125,3 +138,7 @@ http:
         - url: http://localhost:5000/
         passHostHeader: false
 ```
+
+## Credits
+
+this plugin is based on [kevtainer/denyip](https://github.com/kevtainer/denyip)
