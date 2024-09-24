@@ -11,7 +11,9 @@ entryPoints:
    address: ":6688"
 
 providers:
+  # https://doc.traefik.io/traefik/providers/file/
   file:
+    watch: true
     filename: "dyn.yaml"
 
 experimental:
