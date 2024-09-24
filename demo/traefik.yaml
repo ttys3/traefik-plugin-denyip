@@ -1,10 +1,19 @@
 # Static configuration
+
 log:
   level: TRACE
 
 global:
   checkNewVersion: false
   sendAnonymousUsage: false
+
+api:
+  dashboard: true
+  insecure: true
+  debug: true
+
+metrics:
+  prometheus: {}
 
 entryPoints:
   web:
