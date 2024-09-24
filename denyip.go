@@ -49,14 +49,7 @@ type DenyIP struct {
 	enabled bool
 }
 
-var instance *DenyIP
-
 func main() {
-	if instance != nil {
-		handler.HandleRequestFn = instance.handleRequest
-		return
-	}
-
 	var config Config
 	err := json.Unmarshal(handler.Host.GetConfig(), &config)
 	if err != nil {
@@ -70,8 +63,6 @@ func main() {
 		handler.Host.Log(api.LogLevelError, fmt.Sprintf("DenyIP Could not load config %v", err))
 		os.Exit(1)
 	}
-	instance = mw
-
 	handler.Host.Log(api.LogLevelInfo, fmt.Sprintf("DenyIP plugin loaded with config: %v", config))
 	handler.HandleRequestFn = mw.handleRequest
 }
