@@ -31,7 +31,7 @@ jobs:
       - name: Install tinygo
         uses: acifani/setup-tinygo@v2
         with:
-          tinygo-version: '0.33.0'
+          tinygo-version: '0.35.0'
 
       # https://golangci-lint.run/usage/install#other-ci
       - name: Install golangci-lint ${{ env.GOLANGCI_LINT_VERSION }}
