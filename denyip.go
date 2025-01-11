@@ -176,7 +176,8 @@ func NewChecker(config Config) (*Checker, error) {
 	})
 
 	// Test Redis connection
-	ctx := context.Background()
+ ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+ defer cancel()
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("DenyIP: Redis connection failed: %w", err)
 	}
