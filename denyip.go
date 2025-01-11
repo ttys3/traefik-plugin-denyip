@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -14,28 +15,33 @@ import (
 
 	"github.com/http-wasm/http-wasm-guest-tinygo/handler"
 	"github.com/http-wasm/http-wasm-guest-tinygo/handler/api"
+	"github.com/redis/go-redis/v9"
 )
 
-var builtinBlacklist = map[string][]string{
-	"blocklist_net_ua.ipset": blocklist_net_uaList,
-}
-
 const (
-	xForwardedFor  = "X-Forwarded-For"
-	CfConnectingIP = "CF-Connecting-IP"
+	xForwardedFor          = "X-Forwarded-For"
+	CfConnectingIP         = "CF-Connecting-IP"
+	DefaultMaxSubnetRanges = 100
 )
 
 // Checker allows to check that addresses are in a denied IPs.
 type Checker struct {
-	denyIPs    []*net.IP
-	denyIPsNet []*net.IPNet
+	rdb             *redis.Client
+	keyPrefix       string
+	maxSubnetRanges int
+	hasSubnets      bool
 }
 
 // Config the plugin configuration.
 type Config struct {
-	Enabled      string   `json:"enabled,omitempty"`
-	BuiltinLists []string `json:"builtinLists,omitempty"`
-	IPDenyList   []string `json:"ipDenyList,omitempty"`
+	Enabled string `json:"enabled,omitempty"`
+	Redis   struct {
+		Addr            string `json:"addr"`
+		Password        string `json:"password"`
+		DB              int    `json:"db"`
+		KeyPrefix       string `json:"keyPrefix"`
+		MaxSubnetRanges int    `json:"maxSubnetRanges"`
+	} `json:"redis"`
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -69,7 +75,7 @@ func main() {
 
 // New creates a new DenyIP plugin.
 func New(config Config) (*DenyIP, error) {
-	checker, err := NewChecker(config.IPDenyList, config.BuiltinLists)
+	checker, err := NewChecker(config)
 	if err != nil {
 		return nil, err
 	}
@@ -159,42 +165,90 @@ func (a *DenyIP) GetRemoteIP(req api.Request) []string {
 	return ipList
 }
 
-// NewChecker builds a new Checker given a list of CIDR-Strings to denied IPs.
-func NewChecker(deniedIPs []string, builtinLists []string) (*Checker, error) {
-	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP NewChecker begin, deniedIPs: %v, builtinLists: %v", deniedIPs, builtinLists))
-	if len(builtinLists) > 0 {
-		for _, list := range builtinLists {
-			if builtinBlacklist[list] != nil {
-				deniedIPs = append(deniedIPs, builtinBlacklist[list]...)
-				handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP: using builtin list %s", list))
-			}
-		}
+// New creates Checker with Redis connection
+func NewChecker(config Config) (*Checker, error) {
+	handler.Host.Log(api.LogLevelDebug, "DenyIP: initializing Redis checker")
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     config.Redis.Addr,
+		Password: config.Redis.Password,
+		DB:       config.Redis.DB,
+	})
+
+	// Test Redis connection
+	ctx := context.Background()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("DenyIP: Redis connection failed: %w", err)
 	}
 
-	if len(deniedIPs) == 0 {
-		return nil, errors.New("DenyIP: no denied IPs provided")
+	maxRanges := config.Redis.MaxSubnetRanges
+	if maxRanges <= 0 {
+		maxRanges = DefaultMaxSubnetRanges
 	}
 
-	checker := &Checker{}
-
-	for _, ipMask := range deniedIPs {
-		if ipAddr := net.ParseIP(ipMask); ipAddr != nil {
-			checker.denyIPs = append(checker.denyIPs, &ipAddr)
-		} else {
-			_, ipAddr, err := net.ParseCIDR(ipMask)
-			if err != nil {
-				return nil, fmt.Errorf("DenyIP: parsing CIDR denied IPs %s: %w", ipAddr, err)
-			}
-			checker.denyIPsNet = append(checker.denyIPsNet, ipAddr)
-		}
+	// Check if subnet ranges exist
+	rangeKey := makeSubnetRangesKey(config.Redis.KeyPrefix)
+	count, err := rdb.ZCard(ctx, rangeKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("DenyIP: failed to check subnet ranges: %w", err)
 	}
 
-	handler.Host.Log(api.LogLevelDebug, fmt.Sprintf("DenyIP init done, total denied IPs: %d, ips: %v, ips_net: %v",
-		len(checker.denyIPs)+len(checker.denyIPsNet), len(checker.denyIPs), len(checker.denyIPsNet)))
-	return checker, nil
+	return &Checker{
+		rdb:             rdb,
+		keyPrefix:       config.Redis.KeyPrefix,
+		maxSubnetRanges: maxRanges,
+		hasSubnets:      count > 0,
+	}, nil
 }
 
-// Contains checks if provided address is in the denied IPs.
+// Helper functions for IP/subnet conversion
+func ipToUint32(ip net.IP) uint32 {
+	ip = ip.To4()
+	return uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+}
+
+func cidrToRange(cidr string) (uint32, uint32, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Convert IP to uint32
+	ipStart := ipToUint32(ipNet.IP)
+
+	// Calculate the end IP of the range
+	ones, bits := ipNet.Mask.Size()
+	ipRange := uint32(1<<(bits-ones) - 1)
+	ipEnd := ipStart | ipRange
+
+	return ipStart, ipEnd, nil
+}
+
+func makeIPKey(prefix, ip string) string {
+	return fmt.Sprintf("%s:ip:%s", prefix, ip)
+}
+
+func makeSubnetRangesKey(prefix string) string {
+	return fmt.Sprintf("%s:subnet", prefix)
+}
+
+// StoreSubnet stores subnet in Redis with proper score range
+func (ip *Checker) StoreSubnet(ctx context.Context, cidr string) error {
+	start, end, err := cidrToRange(cidr)
+	if err != nil {
+		return fmt.Errorf("failed to convert CIDR: %w", err)
+	}
+
+	key := makeSubnetRangesKey(ip.keyPrefix)
+	member := fmt.Sprintf("%d:%d:%s", start, end, cidr)
+
+	return ip.rdb.ZAdd(ctx, key, redis.Z{
+		Score:  float64(start),
+		Member: member,
+	}).Err()
+}
+
+// Contains checks if IP is blocked
 func (ip *Checker) Contains(addr string) (bool, error) {
 	if len(addr) == 0 {
 		return false, errors.New("DenyIP: got empty client IP address")
@@ -202,27 +256,61 @@ func (ip *Checker) Contains(addr string) (bool, error) {
 
 	ipAddr, err := parseIP(addr)
 	if err != nil {
-		return false, fmt.Errorf("DenyIP Checker unable to parse address: %s: %w", addr, err)
+		return false, fmt.Errorf("DenyIP: unable to parse address %s: %w", addr, err)
 	}
 
-	return ip.ContainsIP(ipAddr), nil
-}
+	ctx := context.Background()
 
-// ContainsIP checks if provided address is in the denied IPs.
-func (ip *Checker) ContainsIP(addr net.IP) bool {
-	for _, deniedIP := range ip.denyIPs {
-		if deniedIP.Equal(addr) {
-			return true
+	// 1. First check exact IP match (O(1))
+	key := makeIPKey(ip.keyPrefix, ipAddr.String())
+	exists, err := ip.rdb.Exists(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("DenyIP: Redis check failed: %w", err)
+	}
+	if exists == 1 {
+		return true, nil
+	}
+
+	// Skip subnet check if no subnets are configured
+	if !ip.hasSubnets {
+		return false, nil
+	}
+
+	// 2. Check subnets using sorted set range query
+	ipInt := ipToUint32(ipAddr)
+
+	// Get only the last few ranges that could contain this IP
+	// Use ZREVRANGEBYSCORE to get ranges in descending order
+	// and LIMIT to get only a small number of results
+	rangeKey := makeSubnetRangesKey(ip.keyPrefix)
+	ranges, err := ip.rdb.ZRangeByScore(ctx, rangeKey, &redis.ZRangeBy{
+		Min:    "0",
+		Max:    fmt.Sprintf("%d", ipInt),
+		Offset: 0,
+		Count:  int64(ip.maxSubnetRanges),
+	}).Result()
+	if err != nil {
+		return false, fmt.Errorf("DenyIP: Redis subnet check failed: %w", err)
+	}
+
+	// Check if IP falls within any of the returned ranges
+	for _, r := range ranges {
+		parts := strings.Split(r, ":")
+		if len(parts) != 3 {
+			continue
+		}
+
+		// Since ZRangeByScore already ensures that start IP <= current IP (based on score),
+		// we only need to check if the current IP is within the end range.
+		// This eliminates redundant start IP comparison and improves performance.
+		end, _ := strconv.ParseUint(parts[1], 10, 32)
+
+		if ipInt <= uint32(end) {
+			return true, nil
 		}
 	}
 
-	for _, denyNet := range ip.denyIPsNet {
-		if denyNet.Contains(addr) {
-			return true
-		}
-	}
-
-	return false
+	return false, nil
 }
 
 func parseIP(addr string) (net.IP, error) {
