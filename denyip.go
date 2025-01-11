@@ -169,11 +169,14 @@ func (a *DenyIP) GetRemoteIP(req api.Request) []string {
 func NewChecker(config Config) (*Checker, error) {
 	handler.Host.Log(api.LogLevelDebug, "DenyIP: initializing Redis checker")
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     config.Redis.Addr,
-		Password: config.Redis.Password,
-		DB:       config.Redis.DB,
-	})
+ if config.Redis.Addr == "" {
+     return nil, errors.New("DenyIP: Redis address cannot be empty")
+ }
+ rdb := redis.NewClient(&redis.Options{
+     Addr:     config.Redis.Addr,
+     Password: config.Redis.Password,
+     DB:       config.Redis.DB,
+ })
 
 	// Test Redis connection
  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
